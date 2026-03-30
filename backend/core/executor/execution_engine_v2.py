@@ -31,6 +31,7 @@ from core.executor.test_models import (
     ExecutionConfig,
     TargetServer,
 )
+from core.executor.test_config import TestExecutionConfig
 from core.executor.markdown_parser_v2 import MarkdownTestParserV2
 from core.executor.pytest_code_generator import PytestCodeGeneratorV2
 from core.executor.pytest_api_runner import PytestApiRunnerV2
@@ -191,11 +192,12 @@ class ImprovedTestExecutionEngine:
     
     @staticmethod
     def _default_config() -> ExecutionConfig:
-        """Return default execution configuration."""
+        """Return default execution configuration from environment."""
+        test_config = TestExecutionConfig()
         return ExecutionConfig(
-            target_server=TargetServer(base_url="http://127.0.0.1:8000"),
-            pytest_timeout_seconds=300,
-            pytest_verbose=True,
+            target_server=TargetServer(base_url=test_config.target_base_url),
+            pytest_timeout_seconds=test_config.pytest_timeout_seconds,
+            pytest_verbose=test_config.verbose,
         )
     
     async def execute_markdown_tests(
@@ -531,6 +533,7 @@ class ImprovedTestExecutionEngine:
         server_proc = None
         target_url = config.target_server.base_url
         actual_project_dir = project_dir
+        original_base_url = config.target_server.base_url
         
         try:
             # If we have an uploaded project, try to start its server automatically
@@ -553,13 +556,12 @@ class ImprovedTestExecutionEngine:
                     
                     # Regenerate pytest code with the correct target URL
                     logger.debug(f"Regenerating pytest code with target URL: {target_url}")
-                    if "http://127.0.0.1:8000" in pytest_code or "http://localhost:8000" in pytest_code:
-                        original_url = config.target_server.base_url
+                    if target_url != original_base_url:
                         pytest_code = pytest_code.replace(
-                            original_url,
+                            original_base_url,
                             target_url,
                         )
-                        logger.debug(f"Updated pytest code URLs: {original_url} -> {target_url}")
+                        logger.debug(f"Updated pytest code URLs: {original_base_url} -> {target_url}")
                 
                 except PytestExecutionError as e:
                     # No entry point found — fall back to non-server testing
