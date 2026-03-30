@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
 
     # ── Groq ───────────────────────────────────────────
-    GROQ_API_KEY: str = ""
+    GROQ_API_KEY: str = ""  # Set via environment variable GROQ_API_KEY
     GROQ_MODEL: str = "llama-3.1-8b-instant"
 
     # ── Storage Paths ──────────────────────────────────

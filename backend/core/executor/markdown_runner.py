@@ -10,7 +10,7 @@ import ast
 import tempfile
 from pathlib import Path
 
-from core.parser.markdown_parser import MarkdownTestParser
+from core.executor.markdown_parser_v2 import MarkdownTestParserV2
 from core.executor.pytest_runner import PytestRunner
 from config import get_settings
 from utils.logger import get_logger
@@ -22,7 +22,7 @@ class MarkdownTestRunner:
     """End-to-end runner that converts Markdown to pytest code and executes it."""
     
     def __init__(self, target_base_url="http://127.0.0.1:8000"):
-        self.parser = MarkdownTestParser()
+        self.parser = MarkdownTestParserV2()
         self.pytest_runner = PytestRunner()
         self.base_url = target_base_url
 
@@ -41,10 +41,10 @@ def {func_name}():
     )
 '''
 
-    def _generate_pytest_code(self, parsed_tests: list[dict]) -> str:
+    def _generate_pytest_code(self, test_cases) -> str:
         """
-        Dynamically synthesize a Python `test_*.py` script from parsed Markdown dictionaries.
-        Uses concurrent request templates to make generated test scripts consistent.
+        Dynamically synthesize a Python `test_*.py` script from parsed test cases.
+        Handles both legacy dict format and new ParsedTestCase objects.
         """
         code = [
             "import pytest",
@@ -55,10 +55,24 @@ def {func_name}():
             ""
         ]
 
-        for i, tf in enumerate(parsed_tests):
+        for i, test_case in enumerate(test_cases):
             func_name = f"test_case_{i+1}"
-            endpoint_raw = tf.get("endpoint", "")
-            method = "GET"
+            
+            # Support both dict and ParsedTestCase objects
+            if isinstance(test_case, dict):
+                endpoint_raw = test_case.get("endpoint", "")
+                input_raw = test_case.get("input", "{}")
+                expected_raw = test_case.get("expected", "200")
+                test_name = test_case.get("name", f"Test Case {i+1}")
+                method = "GET"
+            else:
+                # ParsedTestCase object
+                endpoint_raw = test_case.endpoint
+                input_raw = test_case.input_data or {}
+                expected_raw = str(test_case.expected_status)
+                test_name = test_case.name
+                method = test_case.method.value if hasattr(test_case.method, 'value') else str(test_case.method)
+            
             path = "/"
 
             if " " in endpoint_raw:
@@ -80,34 +94,37 @@ def {func_name}():
                 relative_path = ""
 
             # Input handling: parse JSON object; fallback to raw string payload
-            input_raw = tf.get("input", "{}")
-            payload_arg = ""
-            payload_section = ""
-            if method in ("POST", "PUT", "PATCH"):
-                try:
-                    dict_payload = ast.literal_eval(input_raw)
-                    if isinstance(dict_payload, dict):
-                        payload_section = f"payload = {dict_payload}"
-                        payload_arg = ", json=payload"
-                    else:
-                        payload_section = f"payload = {repr(input_raw)}"
+            if isinstance(input_raw, dict):
+                payload_section = f"payload = {input_raw}"
+                payload_arg = ", json=payload"
+            else:
+                input_str = str(input_raw) if input_raw else "{}"
+                payload_arg = ""
+                payload_section = ""
+                if method in ("POST", "PUT", "PATCH"):
+                    try:
+                        dict_payload = ast.literal_eval(input_str)
+                        if isinstance(dict_payload, dict):
+                            payload_section = f"payload = {dict_payload}"
+                            payload_arg = ", json=payload"
+                        else:
+                            payload_section = f"payload = {repr(input_str)}"
+                            payload_arg = ", content=payload"
+                    except Exception:
+                        payload_section = f"payload = {repr(input_str)}"
                         payload_arg = ", content=payload"
-                except Exception:
-                    payload_section = f"payload = {repr(input_raw)}"
-                    payload_arg = ", content=payload"
 
             # Expected status code (default to 200 on parsing failures)
-            expected_raw = tf.get("expected", "200")
             expected_code = 200
             try:
-                expected_code = int(expected_raw.strip()[:3])
+                expected_code = int(str(expected_raw).strip()[:3])
             except Exception:
                 expected_code = 200
 
             # Build each test case from template
             test_block = self.TEST_CASE_TEMPLATE.format(
                 func_name=func_name,
-                name=tf.get("name", f"Test Case {i+1}"),
+                name=test_name,
                 method=method,
                 path=relative_path,
                 payload_section=payload_section,
@@ -129,12 +146,13 @@ def {func_name}():
         runs it natively, and captures the exact passed/failed outputs.
         """
         # Step 1: Parse Markdown test cases
-        parsed_tests = self.parser.parse(markdown_content)
-        if not parsed_tests:
+        spec = self.parser.parse(markdown_content)
+        if not spec.test_cases:
+            logger.warning(f"No test cases parsed. Errors: {spec.parsing_errors}")
             return {"passed": [], "failed": []}
 
         # Step 2: Convert to executable pytest tests
-        pytest_code = self._generate_pytest_code(parsed_tests)
+        pytest_code = self._generate_pytest_code(spec.test_cases)
 
         # Persist the generated test file to the expected workflow path.
         # Some parts of the system expect `storage/generated_tests/test_generated.py`
@@ -166,7 +184,7 @@ def {func_name}():
                 try:
                     idx_str = res.nodeid.split("test_case_")[-1]
                     idx = int(idx_str) - 1
-                    test_name = parsed_tests[idx].get("name", f"Test Case {idx+1}")
+                    test_name = spec.test_cases[idx].name
                 except Exception:
                     test_name = res.nodeid
                 
@@ -180,5 +198,5 @@ def {func_name}():
                         "error": error_msg
                     })
 
-            logger.info("Markdown test execution finalized", passed=len(output["passed"]), failed=len(output["failed"]))
+            logger.info("Markdown test execution finalized", extra={"passed": len(output["passed"]), "failed": len(output["failed"])})
             return output

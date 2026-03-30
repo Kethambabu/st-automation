@@ -84,14 +84,29 @@ _config: Optional[TestExecutionConfig] = None
 
 
 def get_test_config() -> TestExecutionConfig:
-    """Get global test execution configuration."""
+    """
+    Get the global test execution configuration.
+    
+    Uses lazy initialization to load configuration from environment variables
+    and .env file on first access.
+    
+    Returns:
+        TestExecutionConfig: Singleton configuration instance.
+    """
     global _config
     if _config is None:
         _config = TestExecutionConfig()
     return _config
 
 
-def set_test_config(config: TestExecutionConfig):
-    """Override global test configuration (useful for testing)."""
+def set_test_config(config: TestExecutionConfig) -> None:
+    """
+    Override the global test execution configuration.
+    
+    Useful for testing scenarios where you need to use a custom configuration.
+    
+    Args:
+        config: New test execution configuration to use globally.
+    """
     global _config
     _config = config
