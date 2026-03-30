@@ -249,15 +249,23 @@ def extract_key_value_pairs(text: str) -> dict[str, str]:
     - Key: value
     
     Returns dict of normalized key-value pairs.
+    Handles malformed markdown gracefully.
     """
     pairs = {}
     
+    if not text or not text.strip():
+        return pairs
+    
     # Pattern: **key**: value or *key*: value or key: value
-    pattern = r'\*{1,2}(\w+)\*{1,2}\s*:\s*(.+?)(?=\n|$)'
+    # This pattern captures optional asterisks, word characters, optional asterisks, colon, and value
+    pattern = r'\*{0,2}(\w+)\*{0,2}\s*:\s*([^\n]+)'
     
     for match in re.finditer(pattern, text, re.IGNORECASE | re.MULTILINE):
         key = match.group(1).lower().strip()
         value = match.group(2).strip()
-        pairs[key] = value
+        
+        # Skip if key is empty or value is empty
+        if key and value:
+            pairs[key] = value
     
     return pairs

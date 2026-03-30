@@ -7,6 +7,7 @@ Provides endpoints to:
   - Convert the content into structured JSON
 """
 
+import json
 from fastapi import APIRouter, File, UploadFile, HTTPException
 from core.executor.markdown_parser_v2 import MarkdownTestParserV2
 from schemas.review import MarkdownUploadResponse, ParsedTestCase
@@ -55,12 +56,15 @@ async def upload_markdown_tests(file: UploadFile = File(...)):
     validated_cases = []
     try:
         for test_case in spec.test_cases:
+            # Convert input_data (dict) to JSON string for schema compatibility
+            input_str = json.dumps(test_case.input_data) if test_case.input_data else "{}"
+            
             # Map ParsedTestCase to ParsedTestCase schema
             validated_cases.append(ParsedTestCase(
                 name=test_case.name,
                 endpoint=test_case.endpoint,
                 method=test_case.method.value if hasattr(test_case.method, 'value') else str(test_case.method),
-                input=test_case.input_data,
+                input=input_str,
                 expected=str(test_case.expected_status),
                 description=test_case.description
             ))
@@ -72,6 +76,7 @@ async def upload_markdown_tests(file: UploadFile = File(...)):
         )
         
     logger.info(f"Markdown tests validated successfully: {len(validated_cases)} test cases")
+    
     
     return MarkdownUploadResponse(
         success=True,
